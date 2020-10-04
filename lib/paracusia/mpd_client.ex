@@ -50,7 +50,11 @@ defmodule Paracusia.MpdClient do
     end
   end
 
-  def init(retry_after: retry_after, max_attempts: max_attempts) do
+  def init(opts) do
+    {:ok, %MpdClient{sock: nil}, {:continue, {:connect, opts}}}
+  end
+
+  def handle_continue({:connect, retry_after: retry_after, max_attempts: max_attempts}, state) do
     # to close mpd connection after application stop
     :erlang.process_flag(:trap_exit, true)
 
@@ -105,7 +109,8 @@ defmodule Paracusia.MpdClient do
 
     :ok = :gen_tcp.send(sock, "idle\n")
     :ok = :inet.setopts(sock, active: true)
-    {:ok, %MpdClient{sock: sock}}
+
+    {:noreply, %{state | sock: sock}}
   end
 
   # Given a host name (which may also be an IPv4, an IPv6 address or a file name), return a list of

@@ -71,25 +71,11 @@ defmodule Paracusia.PlayerState do
   end
 
   def init(agent) do
-    {:ok, current_song} = MpdClient.Status.current_song()
-    {:ok, queue} = MpdClient.Queue.songs_info()
-    {:ok, status} = MpdClient.Status.status()
+    {:ok, {%PlayerState{}, agent}, {:continue, :load_player_state}}
+  end
 
-    if status.error do
-      _ = Logger.warn(status.error)
-    end
-
-    {:ok, outputs} = MpdClient.AudioOutputs.all()
-
-    player_state = %PlayerState{
-      current_song: current_song,
-      queue: queue,
-      status: status,
-      outputs: outputs
-    }
-
-    _ = Logger.debug("Player initialized, playback status: #{inspect(player_state.status.state)}")
-    {:ok, {player_state, agent}}
+  def handle_continue(:load_player_state, {_, agent}) do
+    try_load_player_state(agent)
   end
 
   defp new_ps_from_events(ps, events) do
@@ -246,6 +232,37 @@ defmodule Paracusia.PlayerState do
   def handle_info({:DOWN, ref, :process, pid, _status}, state = {_ps, agent}) do
     Agent.update(agent, fn subs -> :lists.delete({pid, ref}, subs) end)
     {:noreply, state}
+  end
+
+  def handle_info(:load_player_state, {_, agent}) do
+    try_load_player_state(agent)
+  end
+
+  defp try_load_player_state(agent) do
+    try do
+      {:ok, current_song} = MpdClient.Status.current_song()
+      {:ok, queue} = MpdClient.Queue.songs_info()
+      {:ok, status} = MpdClient.Status.status()
+
+      if status.error do
+        _ = Logger.warn(status.error)
+      end
+
+      {:ok, outputs} = MpdClient.AudioOutputs.all()
+
+      player_state = %PlayerState{
+        current_song: current_song,
+        queue: queue,
+        status: status,
+        outputs: outputs
+      }
+
+      {:noreply, {player_state, agent}}
+    rescue
+      RuntimeError ->
+        Process.send_after(self(), :load_player_state, 1000)
+        {:noreply, {%PlayerState{}, agent}}
+    end
   end
 end
 
